@@ -24,6 +24,10 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of processes in THREAD_SLEEP state, that is, processes
+   that are sleeping. */
+static struct list sleep_list;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -50,6 +54,9 @@ static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
+/* The minimum sleep ticks */
+static int64_t min_sleep_ticks;
+
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -70,6 +77,22 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static void reset_min_sleep_tick(void);
+
+#define min(x, y) (((x) < (y))? (x) : (y))
+
+#define minimize(x, y) x = min(x, y)
+
+/* Reset the minimum sleep ticks to infinity */
+static void 
+reset_min_sleep_tick() {
+  min_sleep_ticks = __LONG_LONG_MAX__;
+}
+
+int64_t 
+get_min_sleep_tick() {
+  return min_sleep_ticks;
+}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -91,7 +114,11 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&sleep_list);
   list_init (&all_list);
+
+  /* Initialize the minimum sleep ticks */
+  reset_min_sleep_tick();
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -312,6 +339,61 @@ thread_yield (void)
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+/* Move the current thread to the sleep queue. */
+void
+thread_sleep(int64_t ticks)
+{
+  /* if the current thread is not idle thread,
+	change the state of the caller thread to BLOCKED,
+	store the local tick to wake up,
+	update the global tick if necessary,
+	and call schedule() */
+  /* When you manipulate thread list, disable interrupt! */
+
+  enum intr_level old_level;
+  
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+
+  struct thread* cur = thread_current();
+  if (cur != idle_thread) {
+    list_push_back (&sleep_list, &cur->elem);
+  }
+
+  cur->wakeup_tick = ticks;
+  minimize(min_sleep_ticks, ticks);
+  thread_block();
+
+  intr_set_level (old_level);
+}
+
+/* Find a sleeping thread and move it to ready queue */
+void 
+thread_wakeup(int64_t ticks) {
+  enum intr_level old_level;
+  
+  ASSERT (intr_context ());
+
+  old_level = intr_disable ();
+
+  reset_min_sleep_tick();
+  
+  for (struct list_elem *e = list_begin (&sleep_list); e != list_end (&sleep_list);) {
+    struct thread *t = list_entry (e, struct thread, elem);
+    if(t->wakeup_tick <= ticks) {
+      e = list_remove(&t->elem);
+      thread_unblock(t);
+    } else {
+      minimize(min_sleep_ticks, t->wakeup_tick);
+      e = list_next (e);
+    }
+  }
+
+  intr_set_level (old_level);
+
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
