@@ -89,9 +89,23 @@ reset_min_sleep_tick() {
   min_sleep_ticks = __LONG_LONG_MAX__;
 }
 
+/* Return the current minimum number of sleep ticks in the sleep queue */
 int64_t 
 get_min_sleep_tick() {
   return min_sleep_ticks;
+}
+
+/* Compares the value of two list elements A and B, given auxiliary data AUX.  
+   Returns true if the priority of the thread A is greater than that of B, or
+   false otherwise. */
+bool
+thread_cmp_priority(const struct list_elem *a,
+             const struct list_elem *b,
+             void *aux UNUSED) {
+  struct thread *threadA = list_entry(a, struct thread, elem);
+  struct thread *threadB = list_entry(b, struct thread, elem);
+
+  return threadA->priority > threadB->priority;
 }
 
 /* Initializes the threading system by transforming the code
@@ -228,6 +242,13 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* Compare the priorities of the currently running thread and the newly inserted one. 
+     Yield the CPU if the newly arriving thread has higher priority */
+  struct thread *cur_thread = thread_current();
+  if(t->priority > cur_thread->priority) {
+    thread_yield();
+  }
+
   return tid;
 }
 
@@ -264,7 +285,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  // list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem, thread_cmp_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -334,8 +356,10 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+  if (cur != idle_thread) {
+    // list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem, thread_cmp_priority, NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -417,7 +441,56 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *cur_thread = thread_current();
+  cur_thread->initial_priority = new_priority;
+  cur_thread->priority = new_priority;
+  reset_priority();
+  thread_yield_if_not_max();
+}
+
+/* Get the thread with highest priority */
+struct thread* 
+thread_highest_priority(void) {
+  struct list_elem *thread_elem = list_begin(&ready_list);
+  return list_entry(thread_elem, struct thread, elem);
+}
+
+/* Preempt the thread if there is a higher priority thread */
+void 
+thread_yield_if_not_max(void) {
+  if(list_empty(&ready_list)) {
+    return;
+  }
+  struct thread *cur_thread = thread_current();
+  struct thread *highest_thread = thread_highest_priority();
+
+  // Yield the thread since there's a thread with higher priority
+  if(cur_thread->priority < highest_thread->priority) {
+    thread_yield();
+  }
+}
+
+/* Reset the current priority of current thread to its original priority
+  If there're still some threads in the donation list, 
+    assign the highest for multiple donation
+*/
+void
+reset_priority(void) {
+  // Reset the priority
+  struct thread *cur_thread = thread_current();
+  cur_thread->priority = cur_thread->initial_priority;
+
+  // If the donation list is empty, then we don't have to do anything
+  if(list_empty(&cur_thread->donations)) {
+    return;
+  }
+
+  // Get the maximum priority among the donation
+  struct list_elem *e = list_max(&cur_thread->donations, thread_cmp_priority, NULL);
+  struct thread *highest_priority = list_entry(e, struct thread, d_elem);
+  if(highest_priority->priority > cur_thread->priority) {
+    cur_thread->priority = highest_priority->priority;
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -545,6 +618,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+
+  list_init(&t->donations);
+  t->initial_priority = priority;
+  t->wait_on_lock = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
