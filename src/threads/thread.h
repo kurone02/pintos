@@ -23,6 +23,15 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define NICE_DEFAULT 0                  /* Default nice value. */
+#define RECENT_CPU_DEFAULT 0            /* Default recent_cpu value. */
+#define LOAD_AVG_DEFAULT 0              /* Default load_avg value. */
+#define FIXED_POINT_1 (1 << 14)         /* The number 1.0 in fix-point format */
+
+/* A struct to represent real numbers
+   using 17.14 fixed-point format
+*/
+typedef int fp;
 
 /* A kernel thread or user process.
 
@@ -92,6 +101,9 @@ struct thread
 
     int64_t wakeup_tick;                /* Tick till wake up */
 
+    int nice;                           /* The nice value of the thread */
+    fp recent_cpu;                      /* The recent cpu usage in fixed-point format */
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     int initial_priority;
@@ -112,6 +124,9 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+/* Load average for MLFQS */
+fp load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -152,5 +167,31 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+/* Fixed-point arithmetics */
+fp int_to_fp(int);
+int fp_to_int_0(fp);
+int fp_to_int_nearest(fp);
+
+fp add_fp(fp, fp);
+fp sub_fp(fp, fp);
+
+fp add_fp_int(fp, int);
+fp sub_fp_int(fp, int);
+
+fp mul_fp(fp, fp);
+fp div_fp(fp, fp);
+
+fp mul_fp_int(fp, int);
+fp div_fp_int(fp, int);
+
+
+/* MLFQS utilities */
+int mlfqs_get_priority(fp, int);
+fp mlfqs_new_recent_cpu(fp, int);
+fp mlfqs_new_load_avg(fp);
+void mlfqs_increase_recent_cpu(void);
+void mlfqs_recalculate_all_priority(void);
+void mlfqs_recalculate_all_recent_cpu(void);
 
 #endif /* threads/thread.h */

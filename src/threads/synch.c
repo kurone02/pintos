@@ -202,18 +202,20 @@ lock_acquire (struct lock *lock)
 
   struct thread *cur_thread = thread_current();
 
-  // Lock is not available
-  if(lock->holder != NULL) {
-    struct thread *holding_thread = lock->holder;
-    cur_thread->wait_on_lock = lock;
-    list_push_back(&holding_thread->donations, &cur_thread->d_elem);
+  if(!thread_mlfqs) {
+    // Lock is not available
+    if(lock->holder != NULL) {
+      struct thread *holding_thread = lock->holder;
+      cur_thread->wait_on_lock = lock;
+      list_push_back(&holding_thread->donations, &cur_thread->d_elem);
 
-    // Nested priority donation
-    struct thread *cur = cur_thread;
-    while(cur->wait_on_lock != NULL) {
-      // Donate priority
-      cur = cur->wait_on_lock->holder;
-      cur->priority = cur_thread->priority;
+      // Nested priority donation
+      struct thread *cur = cur_thread;
+      while(cur->wait_on_lock != NULL) {
+        // Donate priority
+        cur = cur->wait_on_lock->holder;
+        cur->priority = cur_thread->priority;
+      }
     }
   }
 
@@ -256,19 +258,21 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   struct thread *cur_thread = thread_current();
 
-  // Remove the threads on the donation list
-  struct list_elem *e = list_begin(&cur_thread->donations);
-	while(e != list_end(&cur_thread->donations)) {
-		struct thread *cur = list_entry(e, struct thread, d_elem);
-		if(cur->wait_on_lock == lock) {
-			e = list_remove(e);
-		} else {
-			e = list_next(e);
-		}
-	}
+  if(!thread_mlfqs) {
+    // Remove the threads on the donation list
+    struct list_elem *e = list_begin(&cur_thread->donations);
+    while(e != list_end(&cur_thread->donations)) {
+      struct thread *cur = list_entry(e, struct thread, d_elem);
+      if(cur->wait_on_lock == lock) {
+        e = list_remove(e);
+      } else {
+        e = list_next(e);
+      }
+    }
 
-  // Reset priority
-  reset_priority();
+    // Reset priority
+    reset_priority();
+  }
   
   sema_up (&lock->semaphore);
 }
