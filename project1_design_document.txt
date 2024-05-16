@@ -29,26 +29,64 @@ Thu Phuong Nguyen (20202027) <phuongnt@unist.ac.kr>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+> In threads.h, added:
+int64_t wakeup_tick;    /* Tick till wake up */
+int64_t get_min_sleep_tick(void); /* The minimum sleep ticks */
+void thread_sleep (int64_t);    /* Move the current thread to the sleep queue. */
+void thread_wakeup(int64_t);    /* Find a sleeping thread and move it to ready queue */
+
+> In threads.c, added:
+static struct list sleep_list;      /* List of processes in THREAD_SLEEP state (processes are sleeping). */
+static int64_t min_sleep_ticks;     /* The minimum sleep ticks */
+static void reset_min_sleep_tick(void);     /* Reset the minimum sleep ticks to infinity */
+#define min(x, y) (((x) < (y))? (x) : (y))  /* Find min between 2 variables. */
+#define minimize(x, y) x = min(x, y)    /* Find the min between 2 variables and then assign to the first variable. */
+
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+1. First, record the current timer tick count (start).
+2. Assert that interrupts are enabled, ensuring that the system can respond to timer interrupts. (Disable interrupts.)
+3. If the elapsed time since the start of the timer is less than the specified number of ticks, it proceeds with actual sleep, delegating the task to thread_sleep(start + ticks).
+4. Moves the current thread to the sleep queue (sleep_list) with the associated wakeup tick.
+5. Block the thread.
+
+When timer_interrupt() handler is invoked: 
+1. At each timer tick, it increments the global tick count (ticks).
+2. Check sleep list and the global tick, find any threads to wake up,
+3. If so, it invokes thread_wakeup(ticks) to move them to the ready list.
+4. Unblock them.
+5. After waking up any threads, updates the global tick.
+
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
++ Using linked list sleep_list, selectively wakes up threads only when necessary, and efficiently tracks the next earliest wakeup time using get_min_sleep_tick(). 
++ Interrupts are briefly disabled during critical sections to ensure thread safety and prevent race conditions.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
++ Interrupts are temporarily disabled during critical sections to prevent preemption and ensure that the current thread can complete its operation without interference.
++ Access to shared data such as sleep queue (sleep_list) is synchronized to prevent multiple threads from concurrently modifying them.
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+ + During the execution of critical sections in timer_sleep(), interrupts are disabled to prevent timer_interrupt() from being invoked and potentially interfering with the synchronization process.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
++ By utilizing linked list (sleep_list) and selectively waking up threads only when necessary, the system avoids busy waiting and optimizes resource utilization.
++ Synchronization such as locks and disabling interrupts during critical sections ensures thread safety and prevents race conditions ==> multiple threads to safely call timer_sleep() simultaneously without risking data corruption or inconsistent behavior.
+
+
+
 
              PRIORITY SCHEDULING
              ===================
