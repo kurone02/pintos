@@ -29,13 +29,13 @@ Thu Phuong Nguyen (20202027) <phuongnt@unist.ac.kr>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-> In threads.h, added:
++ In threads.h, added:
 int64_t wakeup_tick;    /* Tick till wake up */
 int64_t get_min_sleep_tick(void); /* The minimum sleep ticks */
 void thread_sleep (int64_t);    /* Move the current thread to the sleep queue. */
 void thread_wakeup(int64_t);    /* Find a sleeping thread and move it to ready queue */
 
-> In threads.c, added:
++ In threads.c, added:
 static struct list sleep_list;      /* List of processes in THREAD_SLEEP state (processes are sleeping). */
 static int64_t min_sleep_ticks;     /* The minimum sleep ticks */
 static void reset_min_sleep_tick(void);     /* Reset the minimum sleep ticks to infinity */
@@ -97,31 +97,71 @@ When timer_interrupt() handler is invoked:
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
++ In threads.h, added:
+struct lock *wait_on_lock;          /* The lock that the thread is waiting on */
+struct list donations;         /* The threads to donate the priority to */
+struct list_elem d_elem;            /* List element on donation list */
+bool thread_cmp_priority(const struct list_elem*, const struct list_elem*, void*);/*   Returns true if the priority of the thread A > B. */
+void reset_priority(void);   /* Reset the priority */
+void thread_yield_if_not_max(void);     /* Preempt the thread if there is a higher priority thread */
+struct thread* thread_highest_priority(void);   /* Get the thread with highest priority */
+  
++ In threads.c, added:
+/* Compare the priorities of the currently running thread and the newly inserted one. 
+     Yield the CPU if the newly arriving thread has higher priority */
+struct thread *cur_thread = thread_current();
+
++ In synch.h, added:
+bool sync_cmp_priority(const struct list_elem*, const struct list_elem*, void*); /* Returns true if the priority of the thread in semaphore A is greater than that of semaphore B. */
+
+
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
+/*TODO
 
 ---- ALGORITHMS ----
 
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
++ When a thread attempts to acquire a lock, semaphore, or condition variable, it is inserted into the appropriate wait queue (donations list for locks or waiters list for semaphores and condition variables) based on its priority, ensuring that the highest priority thread is positioned at the front of the queue, the first to be waked up.
++ If priority donation occurs, where a lower-priority thread holding a lock donates its priority to a higher-priority thread waiting on that lock, the priority of the waiting thread is dynamically updated to reflect the donated priority. 
+
 
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
++ When a thread attempts to acquire a lock, it checks if the lock is available. If the lock is held by another thread, priority donation may occur.
++ The waiting thread inherits the priority of the holder of the lock, allowing it to proceed immediately if its new priority is higher than that of any other waiting threads.
++ Nested priority donation: where a thread holding a lock is itself waiting on another lock, the donation process continues recursively. Each waiting thread inherits the priority of the holder of the lock it is waiting on, ensuring that the highest effective priority is maintained throughout the chain of dependencies.
++ Once priority donation is completed, the waiting thread acquires the lock and proceeds with its execution. 
++ If the lock is not immediately available, the thread is blocked and added to the lock's wait queue until the lock becomes available.
+
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
++ Release the lock.
++ The holder's priority need to be updated if it received priority donations. 
++ If the released lock was responsible for donating priority to the holder, the holder's priority is restored to its original priority level before the donation occurred.
++ If a higher-priority thread is waiting on the released lock, it is unblocked and moved to the ready queue. 
+
 
 ---- SYNCHRONIZATION ----
 
 >> B6: Describe a potential race in thread_set_priority() and explain
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
++ A potential race condition in thread_set_priority(): multiple threads attempt to change the priority of a target thread simultaneously. If thread A sets the priority of thread B while thread B is concurrently being scheduled to execute on another processor core, inconsistencies in the priority level of thread B may occur, leading to unexpected behavior.
++ To avoid this race condition, a lock to provide mutual exclusion during the priority setting process. When thread_set_priority() is invoked, it acquires the lock, ensuring that only one thread can modify the priority of a target thread at a time. 
 
 ---- RATIONALE ----
 
 >> B7: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
++ In comparison to alternative designs, these features enhance to manage thread priorities, prevent priority-related issues,promptly releasing the lock and unblocking the highest priority waiting thread ==> efficient resource utilization and prevents priority inversion scenarios.
++ By utilizing locks and synchronization mechanisms, we could keep thread safety and prevents race conditions in critical operations such as priority donation and modification.
+
+
+
 
               ADVANCED SCHEDULER
               ==================
