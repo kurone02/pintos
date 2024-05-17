@@ -586,11 +586,15 @@ thread_set_priority (int new_priority)
     return;
   }
 
+  enum intr_level old_level = intr_disable ();
+
   struct thread *cur_thread = thread_current();
   cur_thread->initial_priority = new_priority;
   cur_thread->priority = new_priority;
   reset_priority();
   thread_yield_if_not_max();
+
+  intr_set_level (old_level);
 }
 
 /* Get the thread with highest priority */
