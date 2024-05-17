@@ -98,7 +98,7 @@ In thread_wakeup(ticks):
 
 
 
-             PRIORITY SCHEDULING
+              SCHEDULING
              ===================
 
 ---- DATA STRUCTURES ----
@@ -226,6 +226,39 @@ prevents race conditions in critical operations such as priority donation and mo
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
++ In threads.h, added:
+#define NICE_DEFAULT 0             /* Default nice value. */
+#define RECENT_CPU_DEFAULT 0       /* Default recent_cpu value. */
+#define LOAD_AVG_DEFAULT 0         /* Default load_avg value. */
+#define FIXED_POINT_1 (1 << 14)    /* The number 1.0 in fix-point format */ 
+
+typedef int fp;   /* A struct to represent real numbers using 17.14 fixed-point format */
+int nice;                          /* The nice value of the thread */
+fp recent_cpu;                     /* The recent cpu usage in fixed-point format */
+
+/* Fixed-point arithmetics */
+fp int_to_fp(int);                 /* Convert int to fp */
+int fp_to_int_0(fp);               /* Convert fp to int, rounding toward 0 */
+int fp_to_int_nearest(fp);         /* Convert fp to int, rounding to nearest */
+fp add_fp(fp, fp);                 /* Add two fix-point numbers */
+fp sub_fp(fp, fp);                 /* Subtract two fix-point numbers */
+fp add_fp_int(fp, int);            /* Add fix-point number and int */
+fp sub_fp_int(fp, int);            /* Subtract fix-point number and int */
+fp mul_fp(fp, fp);                 /* Multiply 2 fix-point numbers */
+fp div_fp(fp, fp);                 /* Divide 2 fix-point numbers */
+fp mul_fp_int(fp, int);            /* Multiply fix-point number and int */
+fp div_fp_int(fp, int);            /* Divide fix-point number and int */
+
+/* MLFQS utilities */
+int mlfqs_get_priority(fp, int);   /* Get the priority based on recent_cpu and nice value */
+fp mlfqs_new_recent_cpu(fp, int);  /* Calculate the new recent_cpu value */
+fp mlfqs_new_load_avg(fp);         /* Calculate the new load_avg */
+void mlfqs_increase_recent_cpu(void);   /* Increment recent_cpu for the running thread */
+void mlfqs_recalculate_all_priority(void);   /* Recalculate priorities for all threads */
+void mlfqs_recalculate_all_recent_cpu(void); /* Recalculate recent_cpu for all threads */
+
+
+
 ---- ALGORITHMS ----
 
 >> C2: Suppose threads A, B, and C have nice values 0, 1, and 2.  Each
@@ -233,11 +266,12 @@ prevents race conditions in critical operations such as priority donation and mo
 >> scheduling decision and the priority and recent_cpu values for each
 >> thread after each given number of timer ticks:
 
-timer  recent_cpu    priority   thread
-ticks   A   B   C   A   B   C   to run
------  --  --  --  --  --  --   ------
- 0
- 4
+//TODO
+timer     recent_cpu     priority       thread
+ticks     A    B    C    A    B    C    to run
+-----     --   --   --   --   --   --   ------
+ 0        0    0    0    63   61   59   A   
+ 4        4    4    4    
  8
 12
 16
@@ -247,12 +281,26 @@ ticks   A   B   C   A   B   C   to run
 32
 36
 
+
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
++ In the scheduler specification ambiguities, there is ambiguity in the precise timing of when the recent_cpu and priority values should be updated.
+
++ To resolve: 
+We assume that recent_cpu is incremented every timer tick, and the load average is recalculated every second (every TIMER_FREQ ticks).
+Priorities are recalculated every 4 timer ticks.
+
++ It matches the behavior of the MLFQS.
+
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
+
++ Inside and outside interrupt context: We perform time-critical operations: updating the tick count, making immediate scheduling decisions based on priority, preempting the current thread if a higher-priority thread is available. ==> ensure responsiveness, high-priority threads are scheduled with minimal latency.
+
++ Outside interrupt context: We perform more complex tasks not required to be done at each tick and computationally intensive: updating the recent_cpu and load_avg values, recalculating priorities for all threads periodically, managing the lists of threads and performing context switches. ==> Keep the interrupt handlers short and efficient to reduce interrupt latency.
+
 
 ---- RATIONALE ----
 
@@ -261,12 +309,30 @@ ticks   A   B   C   A   B   C   to run
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
++ Advantages:
+     - MLFQS design dynamically adjusts thread priorities based on their recent CPU usage and nice values ==> not starve I/O-bound threads, promoting fairness.
+     - Updating recent_cpu and load_avg periodically and not at every tick ==> balances accuracy with performance, avoiding excessive computation overhead.
+     -  Fixed-point maths still work well on systems without floating-point hardware.
+
++ Disadvantages:
+     - Recalculate for all threads can be expensive for systems that have a large number of threads.
+     - While fixed-point arithmetic is efficient, it lacks the precision and range of floating-point arithmetic, potentially leading to rounding errors and less accurate calculations.
+
++ Potential improvement:
+     - Dynamically adjust the parameters of the scheduling algorithm (weights for recent_cpu and nice values) based on runtime metrics and feedback.
+     - Adaptively adjust the recalculation frequency based on system load.
+
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
 >> decide to implement it the way you did?  If you created an
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+
++ Fixed-point arithmetic is simpler and more efficient than floating-point arithmetic, especially on systems without dedicated floating-point hardware, and pintos disabled float numbers. 
+
++ We created an abstraction layer for fixed-point math. The functions and macros for fixed-point math can be reused across different parts of the scheduler. It makes code more modular, easy to maintain and the main scheduling logic more readable.
+
 
                SURVEY QUESTIONS
                ================
@@ -280,14 +346,23 @@ the quarter.
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
 
+It took us a lot of time to understand the requirement of the assignment.
+
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+
+Looking at materials from KAIST that professor provided helps us to understand the MLFQS and priority scheduling. Now we understand more about how a thread 
+works with locks and semaphores.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
 
+If there are more examples/ lectures about multiple donations and MLFQS during class time, it would be much helpful. 
+
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
+
+We don't have any suggestions.
 
 >> Any other comments?
