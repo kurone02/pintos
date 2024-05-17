@@ -266,30 +266,33 @@ void mlfqs_recalculate_all_recent_cpu(void); /* Recalculate recent_cpu for all t
 >> scheduling decision and the priority and recent_cpu values for each
 >> thread after each given number of timer ticks:
 
-//TODO
+Here, we assume the definition of Pintos. (#define TIMER_FREQ 100)
+
 timer     recent_cpu     priority       thread
 ticks     A    B    C    A    B    C    to run
 -----     --   --   --   --   --   --   ------
  0        0    0    0    63   61   59   A   
- 4        4    4    4    
- 8
-12
-16
-20
-24
-28
-32
-36
+ 4        4    0    0    62   61   59   A
+ 8        8    0    0    61   61   59   A
+12        12   0    0    60   61   59   B
+16        12   4    0    60   60   59   A
+20        16   4    0    59   60   59   B
+24        16   8    0    59   59   59   A
+28        20   8    0    58   59   59   B
+32        20   12   0    58   58   59   C
+36        20   12   4    58   58   58   A
 
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
-+ In the scheduler specification ambiguities, there is ambiguity in the precise timing of when the recent_cpu and priority values should be updated.
++ In the scheduler specification ambiguities, there is ambiguity in the precise timing of 
+when the recent_cpu and priority values should be updated.
 
 + To resolve: 
-We assume that recent_cpu is incremented every timer tick, and the load average is recalculated every second (every TIMER_FREQ ticks).
+We assume that recent_cpu is incremented every timer tick, and the load average is 
+recalculated every second (every TIMER_FREQ ticks).
 Priorities are recalculated every 4 timer ticks.
 
 + It matches the behavior of the MLFQS.
@@ -297,9 +300,16 @@ Priorities are recalculated every 4 timer ticks.
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
 
-+ Inside and outside interrupt context: We perform time-critical operations: updating the tick count, making immediate scheduling decisions based on priority, preempting the current thread if a higher-priority thread is available. ==> ensure responsiveness, high-priority threads are scheduled with minimal latency.
++ Inside and outside interrupt context: We perform time-critical operations: 
+updating the tick count, making immediate scheduling decisions based on priority, 
+preempting the current thread if a higher-priority thread is available. 
+==> ensure responsiveness, high-priority threads are scheduled with minimal latency.
 
-+ Outside interrupt context: We perform more complex tasks not required to be done at each tick and computationally intensive: updating the recent_cpu and load_avg values, recalculating priorities for all threads periodically, managing the lists of threads and performing context switches. ==> Keep the interrupt handlers short and efficient to reduce interrupt latency.
++ Outside interrupt context: We perform more complex tasks not required to be done at 
+each tick and computationally intensive: updating the recent_cpu and load_avg values, 
+recalculating priorities for all threads periodically, managing the lists of threads and 
+performing context switches. ==> Keep the interrupt handlers short and efficient to reduce 
+interrupt latency.
 
 
 ---- RATIONALE ----
@@ -310,16 +320,22 @@ Priorities are recalculated every 4 timer ticks.
 >> refine or improve your design?
 
 + Advantages:
-     - MLFQS design dynamically adjusts thread priorities based on their recent CPU usage and nice values ==> not starve I/O-bound threads, promoting fairness.
-     - Updating recent_cpu and load_avg periodically and not at every tick ==> balances accuracy with performance, avoiding excessive computation overhead.
+     - MLFQS design dynamically adjusts thread priorities based on their recent CPU usage 
+     and nice values ==> not starve I/O-bound threads, promoting fairness.
+     - Updating recent_cpu and load_avg periodically and not at every tick ==> balances 
+     accuracy with performance, avoiding excessive computation overhead.
      -  Fixed-point maths still work well on systems without floating-point hardware.
 
 + Disadvantages:
-     - Recalculate for all threads can be expensive for systems that have a large number of threads.
-     - While fixed-point arithmetic is efficient, it lacks the precision and range of floating-point arithmetic, potentially leading to rounding errors and less accurate calculations.
+     - Recalculate for all threads can be expensive for systems that have a large number of 
+     threads.
+     - While fixed-point arithmetic is efficient, it lacks the precision and range of 
+     floating-point arithmetic, potentially leading to rounding errors and less 
+     accurate calculations.
 
 + Potential improvement:
-     - Dynamically adjust the parameters of the scheduling algorithm (weights for recent_cpu and nice values) based on runtime metrics and feedback.
+     - Dynamically adjust the parameters of the scheduling algorithm (weights for recent_cpu 
+     and nice values) based on runtime metrics and feedback.
      - Adaptively adjust the recalculation frequency based on system load.
 
 >> C6: The assignment explains arithmetic for fixed-point math in
@@ -329,9 +345,13 @@ Priorities are recalculated every 4 timer ticks.
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
 
-+ Fixed-point arithmetic is simpler and more efficient than floating-point arithmetic, especially on systems without dedicated floating-point hardware, and pintos disabled float numbers. 
++ Fixed-point arithmetic is simpler and more efficient than floating-point arithmetic, 
+especially on systems without dedicated floating-point hardware, and pintos disabled 
+float numbers. 
 
-+ We created an abstraction layer for fixed-point math. The functions and macros for fixed-point math can be reused across different parts of the scheduler. It makes code more modular, easy to maintain and the main scheduling logic more readable.
++ We created an abstraction layer for fixed-point math. The functions and macros for 
+fixed-point math can be reused across different parts of the scheduler. It makes code 
+more modular, easy to maintain and the main scheduling logic more readable.
 
 
                SURVEY QUESTIONS
@@ -351,14 +371,16 @@ It took us a lot of time to understand the requirement of the assignment.
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
 
-Looking at materials from KAIST that professor provided helps us to understand the MLFQS and priority scheduling. Now we understand more about how a thread 
+Looking at materials from KAIST that professor provided helps us to understand the 
+MLFQS and priority scheduling. Now we understand more about how a thread 
 works with locks and semaphores.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
 
-If there are more examples/ lectures about multiple donations and MLFQS during class time, it would be much helpful. 
+If there are more examples/ lectures about multiple donations and MLFQS during class time, 
+it would be much helpful. 
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
@@ -366,3 +388,5 @@ If there are more examples/ lectures about multiple donations and MLFQS during c
 We don't have any suggestions.
 
 >> Any other comments?
+
+Easier Final Exam please.

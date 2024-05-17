@@ -2,6 +2,7 @@
     "files.associations": {
         "intr-stubs.h": "c",
         "thread.h": "c",
-        "numbers": "c"
+        "numbers": "c",
+        "tests.h": "c"
     }
 }
