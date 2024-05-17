@@ -323,10 +323,10 @@ fp mul_fp_int(fp, int);            /* Multiply fix-point number and int */
 fp div_fp_int(fp, int);            /* Divide fix-point number and int */
 
 /* MLFQS utilities */
-int mlfqs_get_priority(fp, int);   /* Get the priority based on recent_cpu and nice value */
-fp mlfqs_new_recent_cpu(fp, int);  /* Calculate the new recent_cpu value */
-fp mlfqs_new_load_avg(fp);         /* Calculate the new load_avg */
-void mlfqs_increase_recent_cpu(void);   /* Increment recent_cpu for the running thread */
+int mlfqs_get_priority(fp, int);             /* Get the priority based on recent_cpu and nice value */
+fp mlfqs_new_recent_cpu(fp, int);            /* Calculate the new recent_cpu value */
+fp mlfqs_new_load_avg(fp);                   /* Calculate the new load_avg */
+void mlfqs_increase_recent_cpu(void);        /* Increment recent_cpu for the running thread */
 void mlfqs_recalculate_all_priority(void);   /* Recalculate priorities for all threads */
 void mlfqs_recalculate_all_recent_cpu(void); /* Recalculate recent_cpu for all threads */
 
@@ -360,29 +360,27 @@ ticks     A    B    C    A    B    C    to run
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
-+ In the scheduler specification ambiguities, there is ambiguity in the precise timing of 
-when the recent_cpu and priority values should be updated.
+There is no specification that recent_cpu should be updated before or after the priority.
+---> This will results in two different scheduling patterns
 
-+ To resolve: 
-We assume that recent_cpu is incremented every timer tick, and the load average is 
-recalculated every second (every TIMER_FREQ ticks).
-Priorities are recalculated every 4 timer ticks.
+In both the table and our implementation, we update recent_cpu before updating the priority.
 
-+ It matches the behavior of the MLFQS.
+Also, when there are two or more threads with the same max priority, there is no specification
+that we should choose which one to schedule. In both the table and our implementation, we
+choose to schedule with respect to the order of the threads in the queue.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
 
-+ Inside and outside interrupt context: We perform time-critical operations: 
-updating the tick count, making immediate scheduling decisions based on priority, 
-preempting the current thread if a higher-priority thread is available. 
-==> ensure responsiveness, high-priority threads are scheduled with minimal latency.
+Most of the MLFQS scheduling is done with interrupt disabled. This most likely affect the
+performance. The one that is outside of the disabled interrupt context is the schedule()
+function to choose the next thread to run, which is fast already. 
 
-+ Outside interrupt context: We perform more complex tasks not required to be done at 
-each tick and computationally intensive: updating the recent_cpu and load_avg values, 
-recalculating priorities for all threads periodically, managing the lists of threads and 
-performing context switches. ==> Keep the interrupt handlers short and efficient to reduce 
-interrupt latency.
+To somewhat mitigate the performance issue, we notice that even though the specification 
+states that we have to update the priority of all threads every 4 ticks. However, only
+the current thread's priority is affected since before the load average changes in every 
+100 ticks, and all other threads' priorities stay intact. Thus, we only need to update the 
+priority of the current thread every 4 ticks, reducing the computation load.
 
 
 ---- RATIONALE ----
@@ -410,6 +408,7 @@ interrupt latency.
      - Dynamically adjust the parameters of the scheduling algorithm (weights for recent_cpu 
      and nice values) based on runtime metrics and feedback.
      - Adaptively adjust the recalculation frequency based on system load.
+     - Using multiple queues for MLFQS.
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
@@ -420,7 +419,8 @@ interrupt latency.
 
 + Fixed-point arithmetic is simpler and more efficient than floating-point arithmetic, 
 especially on systems without dedicated floating-point hardware, and pintos disabled 
-float numbers. 
+float numbers. Also, we just follow the implementation specified in [1] provided by 
+the Professor.
 
 + We created an abstraction layer for fixed-point math. The functions and macros for 
 fixed-point math can be reused across different parts of the scheduler. It makes code 

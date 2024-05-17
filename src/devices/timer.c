@@ -177,6 +177,7 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  enum intr_level old_level = intr_disable();
   ticks++;
   thread_tick ();
 
@@ -185,11 +186,15 @@ timer_interrupt (struct intr_frame *args UNUSED)
     if(ticks % TIMER_FREQ == 0) {
       load_avg = mlfqs_new_load_avg(load_avg);
       mlfqs_recalculate_all_recent_cpu();
-    }
-    if(ticks % 4 == 0) {
       mlfqs_recalculate_all_priority();
     }
+    if(ticks % 4 == 0) {
+      struct thread *cur_thread = thread_current();
+      cur_thread->priority = mlfqs_get_priority(cur_thread->recent_cpu, cur_thread->nice);
+    }
   }
+
+  intr_set_level (old_level);
 
   /* code to add: 
 	check sleep list and the global tick.

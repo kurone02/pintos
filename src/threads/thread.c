@@ -180,7 +180,7 @@ div_fp_int(fp x, int n) {
 }
 
 
-/* ... */
+/* Get priority given recent_cpu and nice */
 int
 mlfqs_get_priority(fp recent_cpu, int nice) {
   int n = PRI_MAX - (nice << 1);
@@ -189,7 +189,7 @@ mlfqs_get_priority(fp recent_cpu, int nice) {
   return fp_to_int_nearest(new_priority);
 }
 
-/* ... */
+/* Get recent cpu given old recent_cpu and nice */
 fp
 mlfqs_new_recent_cpu(fp recent_cpu, int nice) {
   fp double_load_avg = mul_fp_int(load_avg, 2);
@@ -197,7 +197,7 @@ mlfqs_new_recent_cpu(fp recent_cpu, int nice) {
   return add_fp_int(mul_fp(decay, recent_cpu), nice);
 }
 
-/* ... */
+/* Get the new load average given the old one */
 fp
 mlfqs_new_load_avg(fp old_load_avg) {
   fp w1 = div_fp(int_to_fp(59), int_to_fp(60));
@@ -209,7 +209,7 @@ mlfqs_new_load_avg(fp old_load_avg) {
   return add_fp(mul_fp(w1, old_load_avg), mul_fp_int(w2, num_ready_threads));
 }
 
-/* ... */
+/* Increase the recent CPU of current thread */
 void
 mlfqs_increase_recent_cpu() {
   struct thread *cur_thread = thread_current();
@@ -219,7 +219,7 @@ mlfqs_increase_recent_cpu() {
   cur_thread->recent_cpu = add_fp_int(cur_thread->recent_cpu, 1);
 }
 
-/* ... */
+/* Recalculate all threads' priority */
 void
 mlfqs_recalculate_all_priority(void) {
   struct list_elem *e = list_begin(&all_list);
@@ -230,7 +230,7 @@ mlfqs_recalculate_all_priority(void) {
   }
 }
 
-/* ... */
+/* Recalculate all threads' recent_cpu */
 void
 mlfqs_recalculate_all_recent_cpu(void) {
   struct list_elem *e = list_begin(&all_list);
