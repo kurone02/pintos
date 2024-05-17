@@ -20,6 +20,10 @@ Thu Phuong Nguyen (20202027) <phuongnt@unist.ac.kr>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
+[1] Pintos Slides from KAIST provided by professor
+[2] https://en.wikipedia.org/wiki/Priority_inheritance
+[3] https://en.wikipedia.org/wiki/Priority_inversion
+
                  ALARM CLOCK
                  ===========
 
@@ -130,7 +134,76 @@ bool sync_cmp_priority(const struct list_elem*, const struct list_elem*, void*);
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
 
->>>>> TODO
+In this project, we implemented the data structure suggested in [1].
+For every threads, we added three more attributes:
+    - wait_on_lock: The lock that the thread is waiting on (NULL if not waiting).
+    - donations: The threads to donate the priority to.
+    - d_elem: List element on donation list to construct a linked list.
+
+Every time a thread request a lock:
+    - We use `wait_on_lock` to trace back to the top thread that is holding the lock. 
+    - If the priority is lower then we donate its priority to the parent in dependency chain. 
+    - In the processing of tracing the chain of dependency, we add the current thread to
+    the parent thread's donation list in the chain.
+
+Nested priority donation example:
+
+                  (donations)
+    Thread_A <-------------------┐
+        |    \ (wait)            |
+        |     \      (holding)   |          (donations)
+(d_elem)|      Lock_1 ======= Thread_C <-------------------┐
+        |     /                  |    \                    |
+        V    / (wait)            |     \ (wait)            |
+    Thread_B            (d_elem) |      \      (holding)   |
+                (donations)      |       Lock_3 ======= Thread_G
+    Thread_D  <----------------┐ |      /
+        |    \ (wait)          | |     / (wait)
+        |     \      (holding) | V    /
+(d_elem)|      Lock_2 ======= Thread_F
+        |     /
+        V    / (wait)
+    Thread_E
+
+
+Data structure example:
+
+Thread_G
+   ├──> wait_on_lock: NULL
+   ├──> donations: Thread_C->d_elem
+   └──> d_elem: NULL
+
+Thread_C
+   ├──> wait_on_lock: Lock_3
+   ├──> donations: Thread_A->d_elem
+   └──> d_elem: thread_F->d_elem
+
+Thread_F
+   ├──> wait_on_lock: Lock_3
+   ├──> donations: Thread_D->d_elem
+   └──> d_elem: NULL
+
+Thread_A
+   ├──> wait_on_lock: Lock_1
+   ├──> donations: NULL
+   └──> d_elem: thread_B->d_elem
+
+Thread_B
+   ├──> wait_on_lock: Lock_1
+   ├──> donations: NULL
+   └──> d_elem: NULL
+
+Thread_D
+   ├──> wait_on_lock: Lock_2
+   ├──> donations: NULL
+   └──> d_elem: thread_E->d_elem
+
+Thread_E
+   ├──> wait_on_lock: Lock_2
+   ├──> donations: NULL
+   └──> d_elem: NULL
+
+
 
 ---- ALGORITHMS ----
 
