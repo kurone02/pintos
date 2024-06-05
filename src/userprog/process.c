@@ -21,6 +21,8 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+static const MAX_ARR_SIZE = 128;
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -38,11 +40,55 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  /* Parse command line and get program name */
+  char *first_token, *save_ptr;
+  first_token = strtok_r(file_name, " ", &save_ptr);
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (first_token, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
+}
+
+/* Push the arguments to the user stack */
+void argument_stack(int argc, char **argv, void **stackpointer) {
+  char *arg_addr[MAX_ARR_SIZE];
+  // Push character strings from right to left
+  for(int i = argc - 1; i >= 0; i--) {
+    int arg_len = strlen(argv[i]);
+    *stackpointer -= arg_len + 1; // expand the stack for the terminal \0 character
+    memcpy(*stackpointer, argv[i], arg_len + 1); // push to the stack
+    arg_addr[i] = (char *)*stackpointer;
+  }
+  
+  // Padding the stack to be 4-byte-algin
+  while((uint32_t)(*stackpointer) % 4 != 0) {
+    (*stackpointer)--;
+    *(uint8_t*)(*stackpointer) = 0;
+  }
+
+  // The terminal guard
+  (*stackpointer) -= sizeof(char*);
+  memset(*stackpointer, 0, sizeof(char**));
+  
+  // Push the arguments' address
+  for(int i = argc - 1; i >= 0; i--) {
+    (*stackpointer) -= sizeof(char*);
+    *(char**)(*stackpointer) = arg_addr[i]; // Push the argument's address to the stack
+  }
+
+  // Push argv address
+  (*stackpointer) -= sizeof(char**);
+  *(char**)(*stackpointer) = (*stackpointer) + sizeof(char**);
+  
+  // Push argc value
+  (*stackpointer) -= sizeof(int);
+  *(int*)(*stackpointer) = argc;
+
+  // Push fake address
+  (*stackpointer) -= sizeof(void*);
+  memset(*stackpointer, 0, sizeof(void*));
 }
 
 /* A thread function that loads a user process and starts it
@@ -54,17 +100,42 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
+  char *fn_copy = palloc_get_page (0);
+  if (fn_copy == NULL)
+    return TID_ERROR;
+  strlcpy (fn_copy, file_name, PGSIZE);
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  
+  // Parse the command line
+  char *argv[MAX_ARR_SIZE];
+  int argc = 0;
+  char *token, *save_ptr;
+  for(token = strtok_r(fn_copy, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+    argv[argc] = token;
+    memcpy(argv[argc], token, strlen(token) + 1);
+    argc++;
+  }
+
+  success = load (argv[0], &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
+
+  /* Setting up the stack */
+  argument_stack(argc, argv, &if_.esp);
+
+  hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+
+  palloc_free_page (fn_copy);
+
+  printf("the current stack pointer: %p\n", if_.esp);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -88,6 +159,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(true);
   return -1;
 }
 

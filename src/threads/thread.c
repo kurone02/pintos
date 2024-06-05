@@ -491,12 +491,13 @@ thread_exit (void)
 void
 thread_yield (void) 
 {
-  struct thread *cur = thread_current ();
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
+
+  struct thread *cur = thread_current ();
   if (cur != idle_thread) {
     // list_push_back (&ready_list, &cur->elem);
     list_insert_ordered(&ready_list, &cur->elem, thread_cmp_priority, NULL);
@@ -607,6 +608,11 @@ thread_highest_priority(void) {
 /* Preempt the thread if there is a higher priority thread */
 void 
 thread_yield_if_not_max(void) {
+  // interrupted by externel, do not yield!
+  if(intr_context()) {
+    return;
+  }
+
   if(list_empty(&ready_list)) {
     return;
   }
