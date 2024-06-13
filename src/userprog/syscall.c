@@ -58,7 +58,7 @@ syscall_handler (struct intr_frame *f)
   int number;
 
   if(!get_arg_int(stack_pointer, 0, &number)) {
-    thread_exit ();
+    error_exit(f);
   }
 
   // hex_dump(stack_pointer, stack_pointer, PHYS_BASE - stack_pointer, true);
@@ -89,6 +89,7 @@ syscall_handler (struct intr_frame *f)
       write(args, f);
       break;
     default:
+      error_exit(f);
       break;
   }
 }
@@ -268,7 +269,6 @@ wait(const void* args, struct intr_frame*f) {
   }
 
   int tid = process_wait(process_id);
-  
   SET_RETURN_VALUE(tid);
 }
 
