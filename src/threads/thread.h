@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "synch.h"
+#include "filesys/filesys.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -123,6 +124,10 @@ struct thread
     struct list children;               /* The list of children */
     struct list_elem child_elem;        /* The pointer to the next and previous siblings */
     struct condition exit_signal;       /* The exit signal */
+
+    /* For file descriptors */
+    struct file *fdt[MAX_FILE];         /* The file descriptor table*/
+    int next_fd;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

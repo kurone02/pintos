@@ -162,7 +162,11 @@ page_fault (struct intr_frame *f)
 
   /* If crashes in user space, just kill it */
   if(user) {
-    kill(f);
+    struct thread* cur_thread = thread_current();
+    cur_thread->exit_status = -1;
+    printf("%s: exit(%d)\n", cur_thread->name, cur_thread->exit_status);
+    thread_exit();
+    // kill(f);
   } else { /* If crashes in kernel space */
     /* Copy the return address (a function pointer) to eip */
     f->eip = (void (*)(void))f->eax;

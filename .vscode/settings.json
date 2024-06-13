@@ -21,6 +21,7 @@
         "filesys.h": "c",
         "*.inc": "c",
         "main.h": "c",
-        "lib.h": "c"
+        "lib.h": "c",
+        "atomic": "c"
     }
 }

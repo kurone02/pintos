@@ -205,9 +205,7 @@ process_wait (tid_t child_tid)
     while(child->status != THREAD_EXITING) {
       cond_wait (&child->exit_signal, &child->exit_lock);
     }
-    // printf("TRYING TO FREE 0\n");
     lock_release (&child->exit_lock);
-    // printf("TRYING TO FREE 0\n");
     
     int exit_status = child->exit_status;
     palloc_free_page (child);
@@ -261,6 +259,7 @@ process_exit (void)
       // printf("DONE FREE 1\n");
     if(child->status == THREAD_EXITING) {
       // printf("DELETTING the child\n");
+      close_all_files();
       // palloc_free_page(child);
       // printf("WTF?\n");
     }

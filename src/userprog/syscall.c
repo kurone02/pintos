@@ -39,8 +39,15 @@ static void halt(void);
 static void exit(const void*, struct intr_frame*);
 static void exec(const void*, struct intr_frame*);
 static void wait(const void*, struct intr_frame*);
-
+static void create(const void*, struct intr_frame*);
+static void remove(const void*, struct intr_frame*);
+static void open(const void*, struct intr_frame*);
+static void read(const void*, struct intr_frame*);
 static void write(const void *, struct intr_frame*);
+static void file_size(const void *, struct intr_frame*);
+static void seek(const void *, struct intr_frame*);
+static void tell(const void *, struct intr_frame*);
+static void close(const void *, struct intr_frame*);
 
 void
 syscall_init (void) 
@@ -65,28 +72,47 @@ syscall_handler (struct intr_frame *f)
   // printf("The current stack pointer: %p\n", stack_pointer);
   // printf("The number: %d\n", number);
 
+  args = get_args(stack_pointer);
+
   switch(number) {
     case SYS_HALT:
       halt();
       break;
     case SYS_EXIT:
-      args = get_args(stack_pointer);
       exit(args, f);
       break;
     case SYS_EXEC:
-      args = get_args(stack_pointer);
       exec(args, f);
       break;
     case SYS_WAIT:
-      args = get_args(stack_pointer);
       wait(args, f);
       break;
-
-    /* TODO */
-
+    case SYS_CREATE:
+      create(args, f);
+      break;
+    case SYS_REMOVE:
+      remove(args, f);
+      break;
+    case SYS_OPEN:
+      open(args, f);
+      break;
+    case SYS_FILESIZE:
+      file_size(args, f);
+      break;
+    case SYS_READ:
+      read(args, f);
+      break;
     case SYS_WRITE:
-      args = get_args(stack_pointer);
       write(args, f);
+      break;
+    case SYS_SEEK:
+      seek(args, f);
+      break;
+    case SYS_TELL:
+      tell(args, f);
+      break;
+    case SYS_CLOSE:
+      close(args, f);
       break;
     default:
       error_exit(f);
@@ -101,6 +127,9 @@ syscall_handler (struct intr_frame *f)
    occurred. */
 static int
 get_user (const uint8_t *uaddr) {
+  if(is_kernel_vaddr(uaddr)) {
+    return -1;
+  }
   int result;
   asm ("movl $1f, %0; movzbl %1, %0; 1:"
        : "=&a" (result) : "m" (*uaddr));
@@ -112,6 +141,9 @@ get_user (const uint8_t *uaddr) {
    Returns true if successful, false if a segfault occurred. */
 static bool
 put_user (uint8_t *udst, uint8_t byte) {
+  if(is_kernel_vaddr(udst)) {
+    return false;
+  }
   int error_code;
   asm ("movl $1f, %0; movb %b2, %1; 1:"
        : "=&a" (error_code), "=m" (*udst) : "q" (byte));
@@ -255,8 +287,7 @@ exec(const void *args, struct intr_frame *f) {
     error_exit(f);
   }
 
-  tid_t tid = process_execute(cmd_line);  
-  SET_RETURN_VALUE(tid);
+  SET_RETURN_VALUE(process_execute(cmd_line));
 }
 
 /* Wait for the process to finish */
@@ -272,6 +303,58 @@ wait(const void* args, struct intr_frame*f) {
   SET_RETURN_VALUE(tid);
 }
 
+static void
+create(const void *args, struct intr_frame *f) {
+  char *name;
+  off_t initial_size;
+
+  if (!get_arg_str(args, 0, &name) || !get_arg_int(args, 1, &initial_size)) {
+    error_exit(f);
+  }
+
+  SET_RETURN_VALUE(create_file(name, initial_size));
+}
+
+static void
+remove(const void *args, struct intr_frame *f) {
+  char *name;
+
+  if (!get_arg_str(args, 0, &name)) {
+    error_exit(f);
+  }
+
+  SET_RETURN_VALUE(remove_file(name));
+}
+
+static void
+open(const void *args, struct intr_frame *f) {
+  char *file_name;
+
+  if(!get_arg_str(args, 0, &file_name)) {
+    error_exit(f);
+  }
+  
+  SET_RETURN_VALUE(open_file(file_name));
+}
+
+static void
+read(const void *args, struct intr_frame *f) {
+  int fd;
+  char *buffer;
+  off_t size;
+
+  if(!get_arg_int(args, 0, &fd) ||
+     !get_arg_ptr(args, 1, &buffer) ||
+     !get_arg_int(args, 2, &size) ||
+     get_user(buffer) == -1 ||
+     get_user(buffer + size) == -1
+  ) {
+    error_exit(f);
+  }
+
+  SET_RETURN_VALUE(read_file(fd, buffer, size));
+}
+
 /* Write something */
 static void
 write(const void *args, struct intr_frame *f) {
@@ -280,16 +363,60 @@ write(const void *args, struct intr_frame *f) {
   unsigned size;
 
   if(!get_arg_int(args, 0, &fd) || 
-     !get_arg_ptr(args, 1, (uint8_t **)&buffer) || 
-     !get_arg_int(args, 2, (int *)&size)) {
+     !get_arg_ptr(args, 1, &buffer) || 
+     !get_arg_int(args, 2, &size) ||
+     get_user(buffer) == -1 ||
+     get_user(buffer + size) == -1
+  ) {
     error_exit(f);
   }
 
-  int written = 0;
-  if (fd == STDOUT_FILENO) {
-    putbuf (buffer, size);
-    written = size;
+  SET_RETURN_VALUE(write_to_file(fd, buffer, size));
+}
+
+static void
+file_size(const void *args, struct intr_frame *f) {
+  int fd;
+
+  if(!get_arg_int(args, 0, &fd)) {
+    error_exit(f);
   }
 
-  SET_RETURN_VALUE(written);
+  SET_RETURN_VALUE(get_file_size(fd));
+}
+
+static void
+seek(const void *args, struct intr_frame *f) {
+  int fd;
+  off_t pos;
+
+  if(!get_arg_int(args, 0, &fd) || 
+     !get_arg_int(args, 1, &pos)
+  ) {
+    error_exit(f);
+  }
+  seek_file(fd, pos);
+  SET_RETURN_VALUE(0);
+}
+
+static void
+tell(const void *args, struct intr_frame *f) {
+  int fd;
+
+  if(!get_arg_int(args, 0, &fd)) {
+    error_exit(f);
+  }
+
+  SET_RETURN_VALUE(cur_pos_file(fd));
+}
+
+static void
+close(const void *args, struct intr_frame *f) {
+  int fd;
+
+  if(!get_arg_int(args, 0, &fd)) {
+    error_exit(f);
+  }
+  close_file(fd);
+  SET_RETURN_VALUE(0);
 }
