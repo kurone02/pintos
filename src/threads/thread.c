@@ -472,16 +472,16 @@ thread_exit (void)
 {
   ASSERT (!intr_context ());
 
+  struct thread *cur_thread = thread_current();
+
 #ifdef USERPROG
   process_exit ();
+#else
+  intr_disable ();
+  cur_thread->status = THREAD_DYING;
 #endif
 
-  /* Remove thread from all threads list, set our status to dying,
-     and schedule another process.  That process will destroy us
-     when it calls thread_schedule_tail(). */
-  intr_disable ();
-  list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;
+  list_remove (&cur_thread->allelem);
   schedule ();
   NOT_REACHED ();
 }
@@ -791,6 +791,12 @@ init_thread (struct thread *t, const char *name, int priority)
 
   t->nice = NICE_DEFAULT;
   t->recent_cpu = RECENT_CPU_DEFAULT;
+
+  t->parent_tid = 0;
+  t->exit_status = -1;
+  list_init(&t->children);
+  lock_init(&t->exit_lock);
+  cond_init(&t->exit_signal);
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -11,7 +12,10 @@ enum thread_status
     THREAD_RUNNING,     /* Running thread. */
     THREAD_READY,       /* Not running but ready to run. */
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
-    THREAD_DYING        /* About to be destroyed. */
+    THREAD_DYING,       /* About to be destroyed. */
+    #ifdef USERPROG    
+      THREAD_EXITING    /* About to be freed by parent. */
+    #endif
   };
 
 /* Thread identifier type.
@@ -108,8 +112,17 @@ struct thread
     struct list_elem elem;              /* List element. */
     int initial_priority;
     struct lock *wait_on_lock;          /* The lock that the thread is waiting on */
-    struct list donations;         /* The threads to donate the priority to */
+    struct list donations;              /* The threads to donate the priority to */
     struct list_elem d_elem;            /* List element on donation list */
+
+    /* Shared between thread.c and userprog/syscall.c. */
+    struct lock exit_lock;              /* The lock for exit and wait */
+    int exit_status;                    /* The thread exit code */
+    tid_t parent_tid;                   /* The identifier of the parent */
+    struct list_elem siblings;          /* The pointer to the next and previous siblings */
+    struct list children;               /* The list of children */
+    struct list_elem child_elem;        /* The pointer to the next and previous siblings */
+    struct condition exit_signal;       /* The exit signal */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -119,6 +132,14 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+struct tstart_properties {
+   tid_t parent_tid;                   /* Parent's thread identifier. */
+   char *file_name;                    /* The file name */
+   char *args;                         /* The arguments to be parsed */
+   struct semaphore wait;              /* The semaphore to wait for starting */
+   struct thread *this_thread;         /* The pointer to this thread */
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

@@ -32,6 +32,8 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  struct tstart_properties tstart;
+  struct thread *cur_thread = thread_current();
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -41,13 +43,31 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Parse command line and get program name */
-  char *first_token, *save_ptr;
-  first_token = strtok_r(file_name, " ", &save_ptr);
+  tstart.file_name = strtok_r(fn_copy, " ", &tstart.args);
+  tstart.parent_tid = cur_thread->tid;
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (first_token, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
+  /* Create a new thread to execute FILE_NAME and wait. */
+  sema_init(&tstart.wait, 0);
+  tid = thread_create (tstart.file_name, PRI_DEFAULT, start_process, &tstart);
+
+  /* Fail to create the child */
+  if (tid == TID_ERROR) {
     palloc_free_page (fn_copy); 
+    return tid;
+  }
+
+  /* Finish waiting */
+  sema_down(&tstart.wait);
+
+  /* Fail to create the child */
+  if(tstart.this_thread == NULL) {
+    palloc_free_page(fn_copy);
+    return TID_ERROR;
+  }
+  /* Add to the children of the current thread */
+  list_push_back(&cur_thread->children, &tstart.this_thread->child_elem);
+
+  palloc_free_page(fn_copy);
   return tid;
 }
 
@@ -71,7 +91,7 @@ void argument_stack(int argc, char **argv, void **stackpointer) {
   // The terminal guard
   (*stackpointer) -= sizeof(char*);
   memset(*stackpointer, 0, sizeof(char**));
-  
+
   // Push the arguments' address
   for(int i = argc - 1; i >= 0; i--) {
     (*stackpointer) -= sizeof(char*);
@@ -94,9 +114,10 @@ void argument_stack(int argc, char **argv, void **stackpointer) {
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *aux)
 {
-  char *file_name = file_name_;
+  struct tstart_properties *tstart = aux;
+  char *file_name = tstart->file_name;
   struct intr_frame if_;
   bool success;
 
@@ -113,29 +134,33 @@ start_process (void *file_name_)
   
   // Parse the command line
   char *argv[MAX_ARR_SIZE];
-  int argc = 0;
+  int argc = 1;
   char *token, *save_ptr;
-  for(token = strtok_r(fn_copy, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+  argv[0] = file_name;
+  for(token = strtok_r(tstart->args, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
     argv[argc] = token;
     memcpy(argv[argc], token, strlen(token) + 1);
     argc++;
   }
+  tstart->args = argv;
 
   success = load (argv[0], &if_.eip, &if_.esp);
 
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  if(success) {
+    /* Setting up the stack */
+    argument_stack(argc, argv, &if_.esp);
+
+    /* Update the thread start properties */
+    tstart->this_thread = thread_current();
+    tstart->this_thread->parent_tid = tstart->parent_tid;
+    palloc_free_page (fn_copy);
+    sema_up(&tstart->wait);
+  } else { /* If load failed, quit. */
+    tstart->this_thread = NULL;
+    palloc_free_page (fn_copy);
+    sema_up(&tstart->wait);
     thread_exit ();
-
-  /* Setting up the stack */
-  argument_stack(argc, argv, &if_.esp);
-
-  hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
-
-  palloc_free_page (fn_copy);
-
-  printf("the current stack pointer: %p\n", if_.esp);
+  }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -157,10 +182,41 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  while(true);
-  return -1;
+
+  struct thread *cur = thread_current ();
+  struct thread *child = NULL;
+  struct list_elem *e = list_begin (&cur->children);
+
+  while(e != list_end(&cur->children)) {
+    child = list_entry (e, struct thread, child_elem);
+    if(child->tid == child_tid) {
+      list_remove (e);
+      break;
+    }
+    e = list_next (e);
+  }
+
+  if(child != NULL) {
+    // printf("ACQUIRING THE LOCK 0...\n");
+    lock_acquire (&child->exit_lock);
+    // printf("CURRENT THREAD 0: %p\n", cur);
+    while(child->status != THREAD_EXITING) {
+      cond_wait (&child->exit_signal, &child->exit_lock);
+    }
+    // printf("TRYING TO FREE 0\n");
+    lock_release (&child->exit_lock);
+    // printf("TRYING TO FREE 0\n");
+    
+    int exit_status = child->exit_status;
+    palloc_free_page (child);
+
+    return exit_status;
+  }
+
+  /* Process not found */
+  return TID_ERROR;
 }
 
 /* Free the current process's resources. */
@@ -173,19 +229,62 @@ process_exit (void)
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
-  if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
+  if (pd != NULL)  {
+    /* Correct ordering here is crucial.  We must set
+       cur->pagedir to NULL before switching page directories,
+       so that a timer interrupt can't switch back to the
+       process page directory.  We must activate the base page
+       directory before destroying the process's page
+       directory, or our active page directory will be one
+       that's been freed (and cleared). */
+    cur->pagedir = NULL;
+    pagedir_activate (NULL);
+    pagedir_destroy (pd);
+  }
+  
+  // printf("ACQUIRING THE LOCK 2...\n");
+  lock_acquire (&cur->exit_lock);
+  // printf("CURRENT THREAD 2: %p\n", cur);
+  struct list_elem *e = list_begin(&cur->children);
+  while(e != list_end(&cur->children)) {
+    struct thread *child = list_entry (e, struct thread, child_elem);
+    // printf("ACQUIRING THE LOCK 1...\n");
+    // printf("HOLDING THREAD: %p\n", child->exit_lock.holder);
+    lock_acquire (&child->exit_lock);
+    // printf("CURRENT THREAD 1: %p\n", cur);
+    // printf("The holder should be the current thread, right?: %p\n", child->exit_lock.holder);
+    child->parent_tid = 0;
+    // printf("TRYING TO FREE 1\n");
+    //   printf("HOLDING THREAD: %p\n", child->exit_lock.holder);
+    //   printf("CURRENT THREAD: %p\n", cur);
+      lock_release(&child->exit_lock);
+      // printf("DONE FREE 1\n");
+    if(child->status == THREAD_EXITING) {
+      // printf("DELETTING the child\n");
+      // palloc_free_page(child);
+      // printf("WTF?\n");
     }
+    // printf("WTF more?\n");
+    e = list_remove(e);
+    // printf("WHY WE ARE HERE?\n");
+  }
+
+  enum thread_status status;
+  if(cur->parent_tid != 0) {
+    status = THREAD_EXITING;
+    cond_signal(&cur->exit_signal, &cur->exit_lock);
+  } else {
+    status = THREAD_DYING;
+  }
+
+  enum intr_level old_level = intr_disable();
+  // printf("TRYING TO FREE 2\n");
+  // printf("HOLDING THREAD: %p\n", cur->exit_lock.holder);
+  // printf("CURRENT THREAD: %p\n", cur);
+  lock_release (&cur->exit_lock);
+  // printf("DONE FREE 2\n");
+  cur->status = status;
+  // intr_set_level (old_level);
 }
 
 /* Sets up the CPU for running user code in the current
