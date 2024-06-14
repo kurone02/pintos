@@ -22,6 +22,8 @@
         "*.inc": "c",
         "main.h": "c",
         "lib.h": "c",
-        "atomic": "c"
+        "atomic": "c",
+        "file.h": "c",
+        "off_t.h": "c"
     }
 }

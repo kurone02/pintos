@@ -24,7 +24,7 @@ void close_all_files();
 struct file *get_file(int);
 bool create_file(const char*, off_t);
 bool remove_file(const char*);
-int open_file(const char*);
+int open_file(const char*, bool);
 off_t get_file_size(int );
 off_t read_file(int, void*, off_t);
 off_t write_to_file(int, const void*, off_t);

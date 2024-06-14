@@ -10,6 +10,7 @@
 #include "lib/stdio.h"
 #include "lib/kernel/stdio.h"
 #include "devices/input.h"
+#include "inode.h"
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -160,14 +161,17 @@ remove_file(const char *name) {
 
 /* To open file from process */
 int
-open_file(const char *name) {
+open_file(const char *name, bool executable) {
   acquire_filesys_lock();
   struct file *f = filesys_open(name);
   release_filesys_lock();
 
-
   if(f == NULL) {
     return -1;
+  }
+
+  if(executable) {
+    file_deny_write(f);
   }
 
   /* Find a available file descriptor */

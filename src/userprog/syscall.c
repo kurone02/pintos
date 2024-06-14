@@ -334,7 +334,7 @@ open(const void *args, struct intr_frame *f) {
     error_exit(f);
   }
   
-  SET_RETURN_VALUE(open_file(file_name));
+  SET_RETURN_VALUE(open_file(file_name, false));
 }
 
 static void
