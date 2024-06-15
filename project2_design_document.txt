@@ -8,8 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Minh Duc Nguyen (20202026) <ducnm@unist.ac.kr>
+Thu Phuong Nguyen (20202027) <phuongnt@unist.ac.kr>
 
 ---- PRELIMINARIES ----
 
@@ -19,6 +19,8 @@ FirstName LastName <email@domain.example>
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
+
+[1] Pintos Slides from KAIST provided by professor
 
          ARGUMENT PASSING
          ================
@@ -52,14 +54,88 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
++ In thread.h add:
+enum thread_status
+  {
+    THREAD_RUNNING,     /* Running thread. */
+    THREAD_READY,       /* Not running but ready to run. */
+    THREAD_BLOCKED,     /* Waiting for an event to trigger. */
+    THREAD_DYING        /* About to be destroyed. */
+    THREAD_DYING,       /* About to be destroyed. */
+    /* NEWLY ADDED */
+      THREAD_EXITING    /* About to be freed by parent. */
+  };
+
+struct thread {
+    ...
+    struct lock exit_lock;              /* The lock for exit and wait */
+    int exit_status;                    /* The thread exit code */
+    tid_t parent_tid;                   /* The identifier of the parent */
+    struct list_elem siblings;          /* The pointer to the next and previous siblings */
+    struct list children;               /* The list of children */
+    struct list_elem child_elem;        /* The pointer to the next and previous siblings */
+    struct condition exit_signal;       /* The exit signal */
+    ...
+}
+
+/* Neccessary information to start a new thread/process */
+struct tstart_properties {
+   tid_t parent_tid;                   /* Parent's thread identifier. */
+   char *file_name;                    /* The file name */
+   char *args;                         /* The arguments to be parsed */
+   struct semaphore wait;              /* The semaphore to wait for starting */
+   struct thread *this_thread;         /* The pointer to this thread */
+};
+
+In syscall.h add:
+typedef int pid_t; /* To comply with the naming convention in process.c */
+
+
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
+- File descriptors are the indices point to the corresponding open file data structure.
+
+- The file descriptors are unique within a single process while globally in the OS, there
+can be multiple file descriptors with the same values. Each process maintains its own file 
+descriptor table, so the same file descriptor number can be used in different processes 
+to refer to different files or even the same file opened independently in each process.
+During the fork of a process, file descriptors are typically inherited by the child 
+process, resulting in same file descriptors.
+
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+In our implementation, we create a global lock called `filesys_block`.
+
+- Reading data:
+    + First, we check the arguments are valid or not (pointing to illigal address). Here,
+    we check all file descriptors, the buffer, and the size in the arguments.
+    + Then we check if the file descriptor (fd) is pointing to stdin or not
+        * If yes, we initiate to read the data from stdin
+            -> We do that by using `input_getc()` method and loop until an endline character
+            is found or the number of read bytes exceeds the given size.
+        * If not, we read the data from file by
+            -> Get the file corresponding to `fd` if the file pointer is NULL, return 0
+            -> We call the function `file_read` defined in `file.c`
+            -> Returns the number of read bytes
+            -> Note that we obtain the lock before calling `file_read` and release the 
+            lock after calling `file_read` to ensure that there is no one is tampering 
+            with the reading file
+            -> Return the number of read bytes.
+
+- Writting data:
+    + If the fd is stdout, we simply invoke putbuf to output to stdout
+    + Otherwise, we get the corresponding file. If file pointer is NULL then return 0
+    + Otherwise, obtain the lock
+    + Write data to file using `file_write` function in `file.c`
+    + Release the lock
+    + Return the number of written bytes.
+
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -68,8 +144,38 @@ FirstName LastName <email@domain.example>
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+- When 4,096 bytes (one full page) are copied, both the minimum and maximum number of 
+page table inspections required is one, as the data fits exactly within a single page. 
+
+- For copying 2 bytes, the least number of page table inspections is one if both bytes 
+lie within the same page. However, it can increase to two if the bytes are located on 
+different pages, crossing a page boundary.
+
+- Optimizing the number of page table inspections:
+    + Enhancing data locality
+    + Leveraging Translation Lookaside Buffers (TLB)
+    + Implementing prefetching and caching strategies.
+    + Example suggestions:
+        * If the page size is set at 2 bytes and each segment size is only 1 byte, 
+        segments could be consolidated into a shared page rather than allocating an 
+        entire page to each segment and leaving the remaining space unused.
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+- We first check if the process id from the arguments is valid or not.
+- If not valid then we exit with exit code -1.
+- If valid, then we invoke the `process_wait` and set the return value from the interrupt
+frame as the value returned from `process_wait`.
+- In `process_wait` from `process.c`, we first need to find out which process has the
+provided process ID.
+- If there is no child process with the provided process ID, we return -1
+_ If we found an actual child with the given process ID, we exit the child by
+    + We define a lock to protect the exitting procedure of threads
+    + We obtain the lock before exit the child
+    + We define another conditional variable for recieving and sending the exit signal
+    + We use the pattern while {cond_wait} to wait for the exit_signal, when, we release 
+    the lock.
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -85,6 +191,24 @@ FirstName LastName <email@domain.example>
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+Following the slides from KAIST OS course, the processor hint to modify the 
+`page_fault_handler` to handle the page fault exception from programs. The idea is to
+modify the `page_fault_handler` in `exception.c` so that when a page fault occrus, 
+the OS will trap to the handler:
+    + If the page fault happens in the user space, we exit the thread with exit code -1
+    + Otherwise, it happens in kernel -> illegal address -> set the return value as -1
+
+- Example:
+    if a process accesses an area of memory that hasn't been mapped or is invalid, 
+    the function get_user is invoked. This function tries to access the memory, leading
+    to a page fault. When this occurs, the page fault handler deals with the fault and
+    sends a signal back to get to_user, indicating that there was an error. Subsequently, 
+    process_exit is called, which involves clearing up any remaining structures or 
+    marking them for removal. The thread's status is then updated to dying within the 
+    thread_exit function, and finally, the kernel will release the memory allocated to 
+    the thread structure during the schedule() function.
+
+
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
@@ -99,16 +223,62 @@ FirstName LastName <email@domain.example>
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
 
+Each thread structure includes a semaphore termed 'loading_sema' that is embedded in an 
+internal struct of each thread.
+
+Upon the completion of process_execute, the parent thread locates this process in its 
+children list using the PID. The parent then lowers the semaphore of the new process 
+to achieve synchronization with the mechanism responsible for process initialization.
+
+Regardless of whether the process loads successfully or encounters a loading failure, 
+the 'loading_sema' is subsequently raised. This action signals to the parent process 
+that the loading has concluded. Additionally, a boolean flag is adjusted before the 
+semaphore is raised to reflect the success or failure of the process load, thereby 
+enabling the parent process to easily determine the outcome.
+
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
+- Following the tutorial [1], we decided to handle invalid user memory access by just
+checking if the address is in the user space and let the page fault happens, where it
+will be handled by the modified version of `page_fault_handler`. In the handler, we just 
+consider two cases:
+    + Page fault in user space: We exit the thread
+    + Page fault in kernel space: we set the return value as 0xffffffff and copy the
+    return address to eip
+
+- As already mentioned in the tutorial [1], it is faster to signal a bad pointer via a 
+page fault than checking if the pointer is NULL because it utilizes the hardware MMU. 
+However, it is not always faster because the page fault interrupt is slow. Nevertheless, 
+it leads to a better performance in general because if the pointer causse a page fault 
+then the thread will have to exit anyway, hence, does not matter if it is slower. When it
+is not, the other approach must check everything -> even more slowdown than just a simple
+address check.
+
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
 
+- Advantages:
+    + The implementation is simple and straightforward as we just declare a fixed size
+    array of file descriptors (64 as in [1]).
+    + The usage if our design is also very straightforward as it's just an array of file
+    structure, indexed by the file descriptors.
+
+- Disadvantages:
+    + Obviously, we limitted the number of possible open file at the same time to only 64.
+    + To search and create the fd, we must search through all elements in the array and
+    must allocate 64 memory spaces for the file array. This results in a higher overhead.
+
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+We did not modify this mapping. However, if we have to guess, then the advantages of
+modifying the mapping should be:
+    - Enhanced security and isolation
+    - Enhanced flexibility in system design
+    - Improve scalability
 
          SURVEY QUESTIONS
          ================
