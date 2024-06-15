@@ -179,14 +179,20 @@ open_file(const char *name, bool executable) {
   for(int i = 2; i < MAX_FILE; i++) {
     if(cur_thread->fdt[i] == NULL) {
       cur_thread->fdt[i] = f;
+      // printf("fd should be %d\n", i);
       return i;
     }
   }
 
-  /* Not able to find available file descriptor */
-  acquire_filesys_lock();
-  file_close(name);
-  release_filesys_lock();
+  // printf("fd should be %d\n", -1);
+
+  // /* Not able to find available file descriptor */
+  // acquire_filesys_lock();
+  // printf("Finish closing1\n");
+  // file_close(name);
+  // printf("Finish closing2\n");
+  // release_filesys_lock();
+  // printf("Finish closing3\n");
   return -1;
 }
 

@@ -125,9 +125,13 @@ void
 file_allow_write (struct file *file) 
 {
   ASSERT (file != NULL);
+  // printf("STOP HJERE?\n");
   if (file->deny_write) 
     {
+      // printf("or HJERE?\n");
+      // printf("file %p\n", file);
       file->deny_write = false;
+      // printf("or HJERE???????????\n");
       inode_allow_write (file->inode);
     }
 }
