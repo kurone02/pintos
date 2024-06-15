@@ -21,6 +21,7 @@ Thu Phuong Nguyen (20202027) <phuongnt@unist.ac.kr>
 >> text, lecture notes, and course staff.
 
 [1] Pintos Slides from KAIST provided by professor
+[2] https://stackoverflow.com/questions/22210546/whats-the-difference-between-strtok-and-strtok-r-in-c
 
          ARGUMENT PASSING
          ================
@@ -31,19 +32,68 @@ Thu Phuong Nguyen (20202027) <phuongnt@unist.ac.kr>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
++ In process.c:
+    static const MAX_ARR_SIZE = 128;            /* We assume the length of command line does not exceeds 128 */
++ In process.h:
+    void argument_stack(int, char**, void**);   /* To build the stack for the command line following the turotial [1] */
++ In thread.h:
+    /* Neccessary information to start a new thread/process */
+struct tstart_properties {
+   tid_t parent_tid;                   /* Parent's thread identifier. */
+   char *file_name;                    /* The file name */
+   char *args;                         /* The arguments to be parsed */
+   struct semaphore wait;              /* The semaphore to wait for starting */
+   struct thread *this_thread;         /* The pointer to this thread */
+};
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
+- When process_execute() is called, we tokenized the command line using `strtok_r`. The 
+first token is parsed as the file name to read and execute from while the other tokens
+are considered to be the arguments.
+- Then, we init a semaphore to wait for starting, then we create a new thread with the
+function `start_process` and the aux arguments are the information in `tstart_properties`
+data structure. In `start_process`:
+    + We first parsed all of the command line arguments using `strok_r`.
+    + Then, we load the executable given the file name
+    + If it's not successful, we simple exit
+    + Otherwise, we set up the stack as follows [1]:
+        * Push character strings from right to left
+        * Padding the stack to be 4-byte-algin
+        * Adding the terminal guard
+        * Push the arguments' address
+        * Push argv address
+        * Push argc value
+        * Push fake address
+    + Finally, we finishes starting the new program, we up the semaphore to signal the 
+    caller to continue.
+- Then, we wait until the starting of the new program finishes by down the semaphore.
+- If the new thread it's NULL, we fail to create the new program -> return -1
+- If it's not null, add the new thread to the list of the current thread's children.
+return the child's process id.
+
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
+We researched the reasons and found that `strtok` uses a static pointer and it is not 
+thread safe while `strtok_r` is a reentrant version of `strtok` and is thread safe. 
+Thus, it's more perferable to use `strtok_r` [2].
+
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+
+In Pintos:
+    - The tokenzation is executed inside kernel, which is performant.
+
+In Unix:
+    - The shell is just another normal process, hence, Unix let the kernel to schedule
+    for a more important process (with higher PRIORITY), making the system fairer.
 
            SYSTEM CALLS
            ============
@@ -77,15 +127,6 @@ struct thread {
     struct condition exit_signal;       /* The exit signal */
     ...
 }
-
-/* Neccessary information to start a new thread/process */
-struct tstart_properties {
-   tid_t parent_tid;                   /* Parent's thread identifier. */
-   char *file_name;                    /* The file name */
-   char *args;                         /* The arguments to be parsed */
-   struct semaphore wait;              /* The semaphore to wait for starting */
-   struct thread *this_thread;         /* The pointer to this thread */
-};
 
 In syscall.h add:
 typedef int pid_t; /* To comply with the naming convention in process.c */
